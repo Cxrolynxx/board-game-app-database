@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brettspiel-DB – Meine Sammlung</title>
+  <style>
+    :root{
+      --bg:#0f172a; /* slate-900 */
+      --card:#111827; /* gray-900 */
+      --muted:#94a3b8; /* slate-400 */
+      --text:#e5e7eb; /* gray-200 */
+      --accent:#22d3ee; /* cyan-400 */
+      --chip:#1f2937; /* gray-800 */
+      --ok:#10b981; /* emerald-500 */
+      --warn:#f59e0b; /* amber-500 */
+      --err:#ef4444; /* red-500 */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1224,#0f172a);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Inter,Ubuntu,"Helvetica Neue",Arial}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .app{max-width:1200px;margin:0 auto;padding:20px}
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .brand{display:flex;gap:10px;align-items:center}
+    .brand .logo{width:36px;height:36px;border-radius:10px;background:radial-gradient(circle at 30% 30%,#22d3ee,transparent 40%),radial-gradient(circle at 70% 70%,#10b981,transparent 40%),#0ea5e9;box-shadow:0 0 0 2px #0ea5e944}
+    .brand h1{font-size:20px;margin:0}
+
+    .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+    @media (max-width:980px){.grid{grid-template-columns:1fr}}
+
+    .card{background:linear-gradient(180deg,#0b1224,#0c1222);border:1px solid #1f2937;border-radius:16px;box-shadow:0 8px 30px #0006}
+    .card .hd{padding:14px 16px;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    .card .bd{padding:16px}
+
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .row > *{flex:1}
+
+    input[type="text"], input[type="number"], select{
+      width:100%;padding:12px 14px;border-radius:12px;border:1px solid #233047;background:#0b1220;color:var(--text);
+    }
+    input::placeholder{color:#64748b}
+
+    .btn{padding:10px 14px;border-radius:12px;border:1px solid #1f2937;background:#0b1220;color:var(--text);cursor:pointer}
+    .btn:hover{border-color:#334155;background:#0b1428}
+    .btn.primary{background:linear-gradient(180deg,#22d3ee,#0ea5e9);border:none;color:#06131a;font-weight:700}
+    .btn.ghost{background:transparent;border:1px dashed #334155}
+
+    .results,.library{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    @media (max-width:640px){.results,.library{grid-template-columns:1fr}}
+
+    .game{display:flex;gap:12px;padding:12px;border:1px solid #1f2937;background:#0a0f1c;border-radius:14px;min-height:110px}
+    .game .cover{width:84px;height:84px;border-radius:10px;background:#0b1224;object-fit:cover;border:1px solid #1f2937}
+    .game h3{margin:0 0 4px 0;font-size:15px}
+    .meta{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{font-size:12px;border:1px solid #26324d;background:var(--chip);padding:3px 8px;border-radius:999px;color:#cbd5e1}
+
+    .empty{color:var(--muted)}
+
+    dialog{border:none;border-radius:16px;padding:0;max-width:720px;width:95vw;background:#0b1220;color:var(--text)}
+    dialog::backdrop{background:rgba(0,0,0,.6)}
+    .modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #1f2937}
+    .modal-bd{padding:16px}
+    .cols{display:grid;grid-template-columns:140px 1fr;gap:16px}
+    @media (max-width:700px){.cols{grid-template-columns:1fr}}
+    .cover-lg{width:100%;border-radius:12px;border:1px solid #1f2937;object-fit:cover}
+    .kvs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kvs div{border:1px solid #1f2937;background:#0a0f1c;border-radius:12px;padding:10px}
+    .kvs strong{display:block;font-size:12px;color:#93c5fd;text-transform:uppercase;letter-spacing:.06em}
+
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    .right{margin-left:auto}
+    .muted{color:#93a0b7}
+    .notice{font-size:12px;color:#93a0b7}
+    .danger{color:var(--err)}
+
+    .scan{
+      border:1px dashed #334155;border-radius:14px;padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap
+    }
+    video{width:240px;max-width:100%;border-radius:10px;border:1px solid #1f2937}
+    .tag{background:#0e172c;border:1px solid #26324d;color:#cbd5e1;padding:4px 8px;border-radius:8px;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <h1>Brettspiel‑DB</h1>
+        <span class="tag">Offline‑Bibliothek (LocalStorage)</span>
+      </div>
+      <div class="toolbar">
+        <input id="proxy" type="text" placeholder="Optional: Proxy‑URL für BGG API (z. B. https://your-proxy.example/)">
+        <button class="btn" id="exportBtn">Export</button>
+        <button class="btn" id="importBtn">Import</button>
+        <input id="importFile" type="file" accept="application/json" hidden>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LINKER BEREICH: Globale Suche (BGG) -->
+      <section class="card">
+        <div class="hd">
+          <strong>Spiele suchen (BoardGameGeek)</strong>
+          <span class="notice">Tipp: Erst suchen, dann der privaten Liste hinzufügen</span>
+        </div>
+        <div class="bd">
+          <div class="row">
+            <input id="q" type="text" placeholder="Titel eingeben, z. B. Catan" />
+            <button id="searchBtn" class="btn primary">Suchen</button>
+          </div>
+
+          <details style="margin-top:12px">
+            <summary class="muted">📷 Optional: Barcode scannen (experimentell)</summary>
+            <div class="scan">
+              <div>
+                <video id="video" playsinline muted></video>
+                <div class="notice">Nutzen moderner Browser mit <code>BarcodeDetector</code>. Findet z. B. EAN/UPC und füllt das Suchfeld.</div>
+                <div class="toolbar" style="margin-top:8px">
+                  <button class="btn" id="startScan">Kamera starten</button>
+                  <button class="btn" id="stopScan">Stop</button>
+                </div>
+              </div>
+              <div class="notice">Hinweis: BGG kennt nicht immer Barcodes. Nach dem Scan wird mit dem Code als Text gesucht. Du kannst den gescannten Code durch den Spieletitel ersetzen.</div>
+            </div>
+          </details>
+
+          <div id="results" class="results" style="margin-top:12px"></div>
+          <div id="resultsEmpty" class="empty" style="display:none;margin-top:12px">Keine Treffer.</div>
+        </div>
+      </section>
+
+      <!-- RECHTER BEREICH: Meine Bibliothek + Filter -->
+      <section class="card">
+        <div class="hd">
+          <strong>Meine Bibliothek</strong>
+          <div class="toolbar right">
+            <select id="sort">
+              <option value="name">Sortieren: Name</option>
+              <option value="rating">Sortieren: Bewertung</option>
+              <option value="time">Sortieren: Dauer</option>
+              <option value="year">Sortieren: Jahr</option>
+              <option value="players">Sortieren: Spielerzahl</option>
+            </select>
+          </div>
+        </div>
+        <div class="bd">
+          <div class="row" style="margin-bottom:8px">
+            <input id="filterText" type="text" placeholder="In meiner Bibliothek suchen…">
+          </div>
+          <div class="row">
+            <input id="filterPlayers" type="number" min="1" placeholder="Spielerzahl, z. B. 3">
+            <input id="filterTime" type="number" min="1" placeholder="Dauer (≤ Minuten), z. B. 30">
+            <select id="filterCategory">
+              <option value="">Kategorie: alle</option>
+            </select>
+            <button class="btn" id="resetFilters">Filter zurücksetzen</button>
+          </div>
+          <div id="library" class="library" style="margin-top:12px"></div>
+          <div id="libraryEmpty" class="empty" style="display:none;margin-top:12px">Noch keine Spiele hinzugefügt.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Modal: Game Details -->
+  <dialog id="gameModal">
+    <div class="modal-hd">
+      <strong id="m_title">Spiel</strong>
+      <button class="btn" id="m_close">Schließen</button>
+    </div>
+    <div class="modal-bd">
+      <div class="cols">
+        <img id="m_cover" class="cover-lg" alt="Cover" />
+        <div>
+          <p id="m_desc" class="muted"></p>
+          <div class="kvs" style="margin-top:10px">
+            <div><strong>Spieler</strong><span id="m_players"></span></div>
+            <div><strong>Dauer</strong><span id="m_time"></span></div>
+            <div><strong>Bewertung</strong><span id="m_rating"></span></div>
+            <div><strong>Jahr</strong><span id="m_year"></span></div>
+          </div>
+          <div class="meta" id="m_categories" style="margin-top:10px"></div>
+          <div class="toolbar" style="margin-top:12px">
+            <a id="m_bgg" class="btn" target="_blank" rel="noopener">BGG‑Seite</a>
+            <a id="m_rules" class="btn" target="_blank" rel="noopener">Regeln suchen</a>
+            <a id="m_howto" class="btn" target="_blank" rel="noopener">YouTube‑Anleitung</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    // ------------------------------
+    // Util & Storage
+    // ------------------------------
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const STORAGE_KEY = 'bgg_my_library_v1';
+    const CACHE_KEY = 'bgg_cache_v1';
+
+    const state = {
+      library: load(STORAGE_KEY, []),        // [{id, name, year, players:{min,max}, playtime, rating, image, categories:[...], desc}]
+      cache: load(CACHE_KEY, {}),            // id -> thing payload
+      proxy: localStorage.getItem('bgg_proxy') || ''
+    };
+
+    function save(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+    function load(k, fallback){ try{ return JSON.parse(localStorage.getItem(k)) ?? fallback } catch{ return fallback } }
+
+    // Persist proxy input
+    const proxyInput = $('#proxy');
+    proxyInput.value = state.proxy;
+    proxyInput.addEventListener('change', () => {
+      state.proxy = proxyInput.value.trim();
+      localStorage.setItem('bgg_proxy', state.proxy);
+    });
+
+    // ------------------------------
+    // BoardGameGeek API (XML2)
+    // Docs: https://boardgamegeek.com/wiki/page/BGG_XML_API2
+    // NOTE: Je nach Browser sind CORS-Header auf api.geekdo.com evtl. restriktiv.
+    // Falls Requests blockiert werden, trage oben eine Proxy-URL ein (eigener kleiner CORS-Proxy oder dev-Proxy).
+    // ------------------------------
+    const BGG = {
+      base: 'https://api.geekdo.com/xmlapi2',
+      async search(query){
+        const url = `${this.base}/search?type=boardgame,boardgameexpansion&query=${encodeURIComponent(query)}`;
+        const xml = await fetchXML(url);
+        const items = [...xml.querySelectorAll('item')].map(x => ({
+          id: x.getAttribute('id'),
+          name: x.querySelector('name')?.getAttribute('value') || 'Unbenannt',
+          year: x.querySelector('yearpublished')?.getAttribute('value') || ''
+        }));
+        return items;
+      },
+      async thing(ids){
+        const url = `${this.base}/thing?id=${ids.join(',')}&stats=1`;
+        const xml = await fetchXML(url);
+        return [...xml.querySelectorAll('item')].map(parseThing);
+      }
+    };
+
+    async function fetchXML(url){
+      const final = state.proxy ? (state.proxy.replace(/\/$/, '') + '/' + url) : url;
+      const res = await fetch(final);
+      if(!res.ok){
+        throw new Error('HTTP ' + res.status + ' – ' + final);
+      }
+      const txt = await res.text();
+      return new DOMParser().parseFromString(txt, 'text/xml');
+    }
+
+    function parseThing(item){
+      const getVal = (sel, attr='value') => item.querySelector(sel)?.getAttribute(attr);
+      const name = [...item.querySelectorAll('name')].find(n => n.getAttribute('type')==='primary')?.getAttribute('value') || getVal('name') || 'Unbenannt';
+      const id = item.getAttribute('id');
+      const image = getVal('image','textContent') || getVal('thumbnail','textContent') || '';
+      const desc = (item.querySelector('description')?.textContent || '').replace(/\s+/g,' ').trim();
+      const year = getVal('yearpublished') || '';
+      const minplayers = +(getVal('minplayers') || 0);
+      const maxplayers = +(getVal('maxplayers') || 0);
+      const minplaytime = +(getVal('minplaytime') || 0);
+      const maxplaytime = +(getVal('maxplaytime') || 0);
+      const playingtime = +(getVal('playingtime') || maxplaytime || minplaytime || 0);
+      const avg = +(item.querySelector('ratings average')?.getAttribute('value') || 0);
+      const bayes = +(item.querySelector('ratings bayesaverage')?.getAttribute('value') || 0);
+      const ranks = [...item.querySelectorAll('ranks rank')].map(r => ({name:r.getAttribute('name'), value:+(r.getAttribute('value')||0)}));
+      const categories = [...item.querySelectorAll('link[type="boardgamecategory"]')].map(l => l.getAttribute('value'));
+      const mechanics = [...item.querySelectorAll('link[type="boardgamemechanic"]')].map(l => l.getAttribute('value'));
+      return {
+        id, name, year: year ? +year : '',
+        image, desc,
+        players:{min:minplayers, max:maxplayers},
+        playtime:{min:minplaytime, max:maxplaytime, typical:playingtime},
+        rating:{avg, bayes, ranks},
+        categories, mechanics
+      };
+    }
+
+    // ------------------------------
+    // UI: Suche (links)
+    // ------------------------------
+    const resultsEl = $('#results');
+    const resultsEmpty = $('#resultsEmpty');
+    $('#searchBtn').addEventListener('click', doSearch);
+    $('#q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch() });
+
+    async function doSearch(){
+      const q = $('#q').value.trim();
+      if(!q){ resultsEl.innerHTML=''; resultsEmpty.style.display='block'; return }
+      setLoading(resultsEl);
+      resultsEmpty.style.display='none';
+      try{
+        const hits = await BGG.search(q);
+        if(hits.length===0){ resultsEl.innerHTML=''; resultsEmpty.style.display='block'; return }
+        // Fetch details (batched) for richer cards
+        const ids = hits.slice(0,24).m
