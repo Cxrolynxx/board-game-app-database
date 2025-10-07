@@ -35,17 +35,3 @@ Die App nutzt Daten von [BoardGameGeek](https://boardgamegeek.com) und speichert
 
 - 📷 **(Optional)** Barcode-Scan mit der Kamera  
   Nutzt `BarcodeDetector` (in Chrome, Edge, Safari verfügbar) – scannt EAN/UPC und sucht automatisch das Spiel.
-
----
-
-## 🚀 Nutzung
-
-### Variante 1 – Lokal (einfach)
-
-1. Lade die Datei `index.html` herunter (z. B. aus deinem Repo oder von dieser App).  
-2. Öffne sie direkt im Browser (`Doppelklick` oder `Datei → Öffnen`).
-3. Fertig! Alle Daten werden lokal gespeichert.
-
-### Variante 2 – Über einen kleinen Webserver (empfohlen)
-
-Wenn du möchtest, kannst du die App auch über einen lokalen Server starten (z. B.
