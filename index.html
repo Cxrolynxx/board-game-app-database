@@ -105,7 +105,7 @@
         <span class="tag">Offline‑Bibliothek (LocalStorage)</span>
       </div>
       <div class="toolbar">
-        <input id="proxy" type="text" placeholder="Optional: https://board-game-database.l-dxx.workers.dev/" />
+        <input id="proxy" type="text" placeholder="Optional: Proxy‑URL für BGG API (z. B. https://your-proxy.example/)" />
         <select id="listSelect" title="Aktive Liste zum Merken" style="min-width:160px"></select>
         <button class="btn" id="newListBtn" title="Neue Liste anlegen">+ Liste</button>
         <button class="btn" id="viewListsBtn" title="Merklisten öffnen">Listen</button>
@@ -293,7 +293,7 @@
     const state = {
       library: load(STORAGE_KEY, []),
       cache: load(CACHE_KEY, {}),
-      proxy: localStorage.getItem('bgg_proxy') || '',
+      proxy: localStorage.getItem('bgg_proxy') || 'https://board-game-database.l-dxx.workers.dev',
       lists: load(LISTS_KEY, { default: { id:'default', name:'Merkliste', items:[] } }),
       searchItems: []
     };
