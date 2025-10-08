@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>board game app - database</title>
+  <title>Brettspiel-DB – Meine Sammlung</title>
   <style>
     :root{
       --bg:#0f172a; /* slate-900 */
@@ -80,6 +80,17 @@
     }
     video{width:240px;max-width:100%;border-radius:10px;border:1px solid #1f2937}
     .tag{background:#0e172c;border:1px solid #26324d;color:#cbd5e1;padding:4px 8px;border-radius:8px;font-size:12px}
+
+    /* Lists modal */
+    #lm_lists .list-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid #1f2937;background:#0a0f1c;border-radius:10px;margin-bottom:8px;cursor:pointer}
+    #lm_lists .list-row.active{outline:2px solid #0ea5e9}
+    #lm_lists .count{font-size:12px;color:#93a0b7}
+  
+
+    /* Collapsible cards */
+    .btn.toggle{width:32px;height:32px;padding:0;display:grid;place-items:center;font-weight:700}
+    .card.collapsed .bd{display:none}
+    .card.collapsed .hd{border-bottom:1px solid transparent}
   </style>
 </head>
 <body>
@@ -87,11 +98,15 @@
     <header>
       <div class="brand">
         <div class="logo" aria-hidden="true"></div>
-        <h1>board game database</h1>
-        <span class="tag">local storage</span>
+        <h1>Brettspiel‑DB</h1>
+        <span class="tag">Offline‑Bibliothek (LocalStorage)</span>
       </div>
       <div class="toolbar">
-        <input id="proxy" type="text" placeholder="Optional: Proxy‑URL für BGG API (z. B. https://your-proxy.example/)">
+        <input id="proxy" type="text" placeholder="Optional: Proxy‑URL für BGG API (z. B. https://your-proxy.example/)" />
+        <input id="bgaClientId" type="text" placeholder="Optional: BoardGameAtlas Client ID (für Preis)" style="max-width:260px" />
+        <select id="listSelect" title="Aktive Liste zum Merken" style="min-width:160px"></select>
+        <button class="btn" id="newListBtn" title="Neue Liste anlegen">+ Liste</button>
+        <button class="btn" id="viewListsBtn" title="Merklisten öffnen">Listen</button>
         <button class="btn" id="exportBtn">Export</button>
         <button class="btn" id="importBtn">Import</button>
         <input id="importFile" type="file" accept="application/json" hidden>
@@ -102,7 +117,7 @@
       <!-- LINKER BEREICH: Globale Suche (BGG) -->
       <section class="card">
         <div class="hd">
-          <strong>Spiele suchen</strong>
+          <strong>Spiele suchen (BoardGameGeek)</strong>
           <span class="notice">Tipp: Erst suchen, dann der privaten Liste hinzufügen</span>
         </div>
         <div class="bd">
@@ -111,8 +126,24 @@
             <button id="searchBtn" class="btn primary">Suchen</button>
           </div>
 
+          <div class="row" id="searchFilterRow" style="margin-top:8px">
+            <input id="sPlayers" type="number" min="1" placeholder="Spieler (z. B. 3)" />
+            <input id="sTime" type="number" min="1" placeholder="Dauer (≤ Minuten)" />
+            <select id="sCategory">
+              <option value="">Kategorie: alle</option>
+            </select>
+            <select id="sSort">
+              <option value="relevance">Sortieren: Relevanz</option>
+              <option value="rating">Bewertung</option>
+              <option value="year">Jahr</option>
+              <option value="time">Dauer</option>
+              <option value="name">Name</option>
+            </select>
+            <button class="btn" id="sReset">Filter zurücksetzen</button>
+          </div>
+
           <details style="margin-top:12px">
-            <summary class="muted">📷 Barcode scannen (experimentell)</summary>
+            <summary class="muted">📷 Optional: Barcode scannen (experimentell)</summary>
             <div class="scan">
               <div>
                 <video id="video" playsinline muted></video>
@@ -126,6 +157,7 @@
             </div>
           </details>
 
+          <div id="searchLinks" class="notice" style="margin-top:8px; display:none"></div>
           <div id="results" class="results" style="margin-top:12px"></div>
           <div id="resultsEmpty" class="empty" style="display:none;margin-top:12px">Keine Treffer.</div>
         </div>
@@ -192,6 +224,33 @@
     </div>
   </dialog>
 
+  <!-- Modal: Merklisten -->
+  <dialog id="listsModal">
+    <div class="modal-hd">
+      <strong>Merklisten</strong>
+      <button class="btn" id="lm_close">Schließen</button>
+    </div>
+    <div class="modal-bd">
+      <div class="cols" style="grid-template-columns:220px 1fr">
+        <div>
+          <div class="toolbar" style="margin-bottom:8px">
+            <button class="btn" id="lm_new">+ Neue Liste</button>
+          </div>
+          <div id="lm_lists"></div>
+        </div>
+        <div>
+          <div class="toolbar" style="margin-bottom:8px">
+            <strong id="lm_title" style="margin-right:auto">Liste</strong>
+            <button class="btn" id="lm_rename">Umbenennen</button>
+            <button class="btn" id="lm_delete">Löschen</button>
+          </div>
+          <div id="lm_items" class="library"></div>
+          <div id="lm_empty" class="empty" style="display:none">Keine Einträge.</div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <script>
     // ------------------------------
     // Util & Storage
@@ -201,22 +260,55 @@
 
     const STORAGE_KEY = 'bgg_my_library_v1';
     const CACHE_KEY = 'bgg_cache_v1';
+    const LISTS_KEY = 'bgg_lists_v1';
+    const PRICE_CACHE_KEY = 'bgg_price_cache_v1';
 
     const state = {
-      library: load(STORAGE_KEY, []),        // [{id, name, year, players:{min,max}, playtime, rating, image, categories:[...], desc}]
-      cache: load(CACHE_KEY, {}),            // id -> thing payload
-       proxy: localStorage.getItem('bgg_proxy') || 'https://cors.isomorphic-git.org'
+      library: load(STORAGE_KEY, []),
+      cache: load(CACHE_KEY, {}),
+      proxy: localStorage.getItem('bgg_proxy') || '',
+      bgaClientId: localStorage.getItem('bga_client_id') || '',
+      lists: load(LISTS_KEY, { default: { id:'default', name:'Merkliste', items:[] } }),
+      priceCache: load(PRICE_CACHE_KEY, {}) ,
+      searchItems: []
     };
 
     function save(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
     function load(k, fallback){ try{ return JSON.parse(localStorage.getItem(k)) ?? fallback } catch{ return fallback } }
 
-    // Persist proxy input
+    // Persist proxy input & price API
     const proxyInput = $('#proxy');
     proxyInput.value = state.proxy;
     proxyInput.addEventListener('change', () => {
       state.proxy = proxyInput.value.trim();
       localStorage.setItem('bgg_proxy', state.proxy);
+    });
+
+    const bgaInput = $('#bgaClientId');
+    bgaInput.value = state.bgaClientId;
+    bgaInput.addEventListener('change', () => {
+      state.bgaClientId = bgaInput.value.trim();
+      localStorage.setItem('bga_client_id', state.bgaClientId);
+    });
+
+    // Lists UI
+    const listSelect = $('#listSelect');
+    const newListBtn = $('#newListBtn');
+
+    function refreshListSelect(){
+      const lists = Object.values(state.lists);
+      listSelect.innerHTML = lists.map(l=>`<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('');
+    }
+    refreshListSelect();
+
+    newListBtn.addEventListener('click',()=>{
+      const name = prompt('Name der neuen Liste:','Merkliste');
+      if(!name) return;
+      const id = 'list_' + Math.random().toString(36).slice(2,8);
+      state.lists[id] = {id, name, items:[]};
+      save(LISTS_KEY, state.lists);
+      refreshListSelect();
+      listSelect.value = id;
     });
 
     // ------------------------------
@@ -238,18 +330,34 @@
         return items;
       },
       async thing(ids){
-        const url = `${this.base}/thing?id=${ids.join(',')}&stats=1`;
-        const xml = await fetchXML(url);
-        return [...xml.querySelectorAll('item')].map(parseThing);
+        // BGG erlaubt große Batches; wir splitten sicherheitshalber
+        const out = [];
+        const chunk = async (arr) => {
+          const url = `${this.base}/thing?id=${arr.join(',')}&stats=1`;
+          const xml = await fetchXML(url);
+          out.push(...[...xml.querySelectorAll('item')].map(parseThing));
+        };
+        for (let i=0;i<ids.length;i+=50){
+          await chunk(ids.slice(i,i+50));
+        }
+        return out;
       }
     };
 
     async function fetchXML(url){
       const final = state.proxy ? (state.proxy.replace(/\/$/, '') + '/' + url) : url;
       const res = await fetch(final);
-      if(!res.ok){
-        throw new Error('HTTP ' + res.status + ' – ' + final);
-      }
+      if(!res.ok){ throw new Error('HTTP ' + res.status + ' – ' + final); }
+      const txt = await res.text();
+      return new DOMParser().parseFromString(txt, 'text/xml');
+    }
+
+    async function fetchJSON(url){
+      const final = state.proxy ? (state.proxy.replace(/\/$/, '') + '/' + url) : url;
+      const res = await fetch(final);
+      if(!res.ok) throw new Error('HTTP ' + res.status + ' – ' + final);
+      return await res.json();
+    }
       const txt = await res.text();
       return new DOMParser().parseFromString(txt, 'text/xml');
     }
@@ -289,6 +397,22 @@
     $('#searchBtn').addEventListener('click', doSearch);
     $('#q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch() });
 
+    // Search filters UI (inputs live in the Search card header area)
+    const sPlayers = document.getElementById('sPlayers');
+    const sTime = document.getElementById('sTime');
+    const sCategory = document.getElementById('sCategory');
+    const sSort = document.getElementById('sSort');
+    const sReset = document.getElementById('sReset');
+    ;[sPlayers, sTime, sCategory, sSort].forEach(el => el && el.addEventListener('input', applySearchFiltersAndRender));
+    if(sReset) sReset.addEventListener('click', ()=>{ if(sPlayers) sPlayers.value=''; if(sTime) sTime.value=''; if(sCategory) sCategory.value=''; if(sSort) sSort.value='relevance'; applySearchFiltersAndRender();
+        // External links for broader search (BGG geeksearch)
+        const sl = document.getElementById('searchLinks');
+        if(sl){
+          const qEnc = encodeURIComponent(q);
+          sl.innerHTML = `Weitere Treffer: <a href="https://boardgamegeek.com/geeksearch.php?action=search&objecttype=boardgame&q=${qEnc}" target="_blank" rel="noopener">BGG-Suche öffnen</a>`;
+          sl.style.display = 'block';
+        } });
+
     async function doSearch(){
       const q = $('#q').value.trim();
       if(!q){ resultsEl.innerHTML=''; resultsEmpty.style.display='block'; return }
@@ -297,5 +421,433 @@
       try{
         const hits = await BGG.search(q);
         if(hits.length===0){ resultsEl.innerHTML=''; resultsEmpty.style.display='block'; return }
+        const ids = hits.slice(0,100).map(h=>h.id);
+        const things = await BGG.thing(ids);
+        state.searchItems = things;
+        applySearchFiltersAndRender();
+      }catch(err){
+        resultsEl.innerHTML = `<div class="empty">Fehler bei der Suche: <span class="danger">${escapeHtml(err.message)}</span><br><span class="notice">Tipp: Falls CORS-Fehler auftreten, trage oben eine Proxy‑URL ein.</span></div>`
+      }
+    }
+
+    function applySearchFiltersAndRender(){
+      let items = state.searchItems.slice();
+      const players = sPlayers ? (+sPlayers.value || null) : null;
+      const tmax = sTime ? (+sTime.value || null) : null;
+      const cat = sCategory ? (sCategory.value || '') : '';
+
+      if(players) items = items.filter(g => g.players.min <= players && g.players.max >= players);
+      if(tmax) items = items.filter(g => (g.playtime.typical||g.playtime.max||g.playtime.min) <= tmax);
+      if(cat) items = items.filter(g => g.categories.includes(cat));
+
+      const sortBy = sSort ? sSort.value : 'relevance';
+      if(sortBy==='rating') items.sort((a,b)=>(b.rating.bayes||b.rating.avg)-(a.rating.bayes||a.rating.avg));
+      else if(sortBy==='year') items.sort((a,b)=>(b.year||0)-(a.year||0));
+      else if(sortBy==='time') items.sort((a,b)=>(a.playtime.typical||a.playtime.max||a.playtime.min)-(b.playtime.typical||b.playtime.max||b.playtime.min));
+      else if(sortBy==='name') items.sort((a,b)=>a.name.localeCompare(b.name));
+
+      renderResults(items);
+    }
+      setLoading(resultsEl);
+      resultsEmpty.style.display='none';
+      try{
+        const hits = await BGG.search(q);
+        if(hits.length===0){ resultsEl.innerHTML=''; resultsEmpty.style.display='block'; return }
         // Fetch details (batched) for richer cards
-        const ids = hits.slice(0,24).m
+        const ids = hits.slice(0,24).map(h=>h.id);
+        const things = await BGG.thing(ids);
+        renderResults(things);
+      }catch(err){
+        resultsEl.innerHTML = `<div class="empty">Fehler bei der Suche: <span class="danger">${escapeHtml(err.message)}</span><br><span class="notice">Tipp: Falls CORS-Fehler auftreten, trage oben eine Proxy‑URL ein.</span></div>`
+      }
+    }
+
+    function renderResults(items){
+      resultsEl.innerHTML = '';
+      // Build category filter options from current search set
+      const cats = new Set();
+      items.forEach(g => g.categories.forEach(c=>cats.add(c)));
+      $('#sCategory').innerHTML = ['<option value="">Kategorie: alle</option>', ...[...cats].sort().map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join('');
+
+      items.forEach(game => {
+        const card = renderSearchCard(game);
+        resultsEl.appendChild(card);
+      });
+    }
+
+    function renderSearchCard(game){
+      const el = document.createElement('div');
+      el.className = 'game';
+      el.innerHTML = `
+        <img class="cover" alt="Cover" src="${escapeHtml(game.image || '')}" onerror="this.style.display='none'"/>
+        <div style="flex:1">
+          <h3>${escapeHtml(game.name)}</h3>
+          <div class="meta">
+            ${game.year ? `<span class="chip">${game.year}</span>` : ''}
+            <span class="chip">${game.players.min||'?'}–${game.players.max||'?'} Spieler</span>
+            <span class="chip">${game.playtime.typical || game.playtime.max || game.playtime.min || '?'} Min</span>
+            ${Number.isFinite(game.rating.bayes) && game.rating.bayes>0 ? `<span class="chip">⭐ ${game.rating.bayes.toFixed(2)}</span>` : ''}
+            <span class="chip" data-price-for="${game.id}">💶 —</span>
+          </div>
+          <p class="muted">${escapeHtml((game.desc||'').slice(0,220))}${(game.desc||'').length>220?'…':''}</p>
+          <div class="toolbar" style="margin-top:8px">
+            <a class="btn" href="https://boardgamegeek.com/boardgame/${encodeURIComponent(game.id)}" target="_blank" rel="noopener">BGG‑Seite</a>
+            <a class="btn" href="https://www.google.com/search?q=${encodeURIComponent(game.name + ' price kaufen')}" target="_blank" rel="noopener">Preise</a>
+            <button class="btn" data-action="remember">Merken</button>
+            <button class="btn" data-action="addlib">Zur Bibliothek</button>
+          </div>
+        </div>`;
+
+      // Actions
+      el.querySelector('[data-action="remember"]').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const listId = listSelect.value || 'default';
+        ensureList(listId);
+        addToList(listId, game.id);
+      });
+      el.querySelector('[data-action="addlib"]').addEventListener('click', (e)=>{ e.stopPropagation(); if(!inLibrary(game.id)) addToLibrary(game); });
+
+      // Lazy price fetch
+      showPrice(game.id, game.name, game.year);
+
+      // Open modal when clicking card (if already in library)
+      el.addEventListener('click', (ev)=>{ if(ev.target.closest('button,a')) return; if(inLibrary(game.id)) openModal(game.id); });
+
+      return el;
+    }
+          ]
+        });
+        resultsEl.appendChild(card);
+      });
+    }
+
+    function toggleAdd(game){
+      if(inLibrary(game.id)) return;
+      addToLibrary(game);
+    }
+
+    // Lists helpers
+    function ensureList(id){ if(!state.lists[id]){ state.lists[id] = {id, name:'Liste', items:[]}; save(LISTS_KEY, state.lists); refreshListSelect(); } }
+    function addToList(id, gameId){
+      const list = state.lists[id];
+      if(!list.items.includes(gameId)) list.items.push(gameId);
+      save(LISTS_KEY, state.lists);
+      // kleines Feedback
+      const name = state.lists[id].name || 'Liste';
+      toast(`Zu "${escapeHtml(name)}" gemerkt.`);
+    }
+
+    // ------------------------------
+    // Library & Filter (rechts)
+    // ------------------------------
+    const libEl = $('#library');
+    const libEmpty = $('#libraryEmpty');
+    const filterText = $('#filterText');
+    const filterPlayers = $('#filterPlayers');
+    const filterTime = $('#filterTime');
+    const filterCategory = $('#filterCategory');
+    const sortSel = $('#sort');
+    const resetBtn = $('#resetFilters');
+
+    [filterText, filterPlayers, filterTime, filterCategory, sortSel].forEach(el => el.addEventListener('input', renderLibrary));
+    resetBtn.addEventListener('click', ()=>{
+      filterText.value=''; filterPlayers.value=''; filterTime.value=''; filterCategory.value=''; sortSel.value='name'; renderLibrary();
+    });
+
+    function inLibrary(id){ return state.library.some(g=>g.id===id) }
+
+    function addToLibrary(game){
+      // Keep cache
+      state.cache[game.id] = game;
+      save(CACHE_KEY, state.cache);
+      state.library.push(game);
+      save(STORAGE_KEY, state.library);
+      renderLibrary();
+    }
+
+    function removeFromLibrary(id){
+      state.library = state.library.filter(g=>g.id!==id);
+      save(STORAGE_KEY, state.library);
+      renderLibrary();
+    }
+
+    function renderLibrary(){
+      // Build category filter options
+      const cats = new Set();
+      state.library.forEach(g => g.categories.forEach(c => cats.add(c)));
+      const catOpts = ['<option value="">Kategorie: alle</option>', ...[...cats].sort().map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)];
+      filterCategory.innerHTML = catOpts.join('');
+
+      const q = filterText.value.trim().toLowerCase();
+      const players = +filterPlayers.value || null;
+      const tmax = +filterTime.value || null;
+      const cat = filterCategory.value || '';
+
+      let items = state.library.slice();
+      if(q) items = items.filter(g => g.name.toLowerCase().includes(q));
+      if(players) items = items.filter(g => g.players.min <= players && g.players.max >= players);
+      if(tmax) items = items.filter(g => (g.playtime.typical || g.playtime.max || g.playtime.min) <= tmax);
+      if(cat) items = items.filter(g => g.categories.includes(cat));
+
+      const sortBy = sortSel.value;
+      items.sort((a,b)=>{
+        switch(sortBy){
+          case 'rating': return (b.rating.bayes||b.rating.avg) - (a.rating.bayes||a.rating.avg);
+          case 'time': return (a.playtime.typical||a.playtime.max||a.playtime.min) - (b.playtime.typical||b.playtime.max||b.playtime.min);
+          case 'year': return (b.year||0) - (a.year||0);
+          case 'players': return (b.players.max||0) - (a.players.max||0);
+          default: return a.name.localeCompare(b.name);
+        }
+      });
+
+      libEl.innerHTML = '';
+      if(items.length===0){ libEmpty.style.display='block'; return } else { libEmpty.style.display='none' }
+
+      items.forEach(game => {
+        const card = renderGameCard(game, {
+          actions: [
+            { label: 'Details', onClick: () => openModal(game.id) },
+            { label: 'Entfernen', onClick: () => removeFromLibrary(game.id) }
+          ]
+        });
+        libEl.appendChild(card);
+      });
+    }
+
+    function renderGameCard(game, {actions=[]}={}){
+      const el = document.createElement('div');
+      el.className = 'game';
+      el.innerHTML = `
+        <img class="cover" alt="Cover" src="${escapeHtml(game.image || '')}" onerror="this.style.display='none'"/>
+        <div style="flex:1">
+          <h3>${escapeHtml(game.name)}</h3>
+          <div class="meta">
+            <span class="chip">${game.players.min||'?'}–${game.players.max||'?'} Spieler</span>
+            <span class="chip">${game.playtime.typical || game.playtime.max || game.playtime.min || '?'} Min</span>
+            ${game.year ? `<span class="chip">${game.year}</span>` : ''}
+            ${Number.isFinite(game.rating.bayes) && game.rating.bayes>0 ? `<span class="chip">⭐ ${game.rating.bayes.toFixed(2)}</span>` : ''}
+          </div>
+          <div class="toolbar" style="margin-top:8px"></div>
+        </div>`;
+      const bar = $('.toolbar', el);
+      actions.forEach(a => {
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = a.label;
+        b.addEventListener('click', a.onClick);
+        bar.appendChild(b);
+      });
+      // Clicking the card opens details (if in library)
+      el.addEventListener('click', (ev)=>{
+        if(ev.target.closest('button')) return;
+        if(inLibrary(game.id)) openModal(game.id);
+      });
+      return el;
+    }
+
+    // ------------------------------
+    // Modal: Game Details
+    // ------------------------------
+    const modal = $('#gameModal');
+    $('#m_close').addEventListener('click', ()=> modal.close());
+
+    async function openModal(id){
+      // Ensure we have fresh details in cache
+      let game = state.cache[id];
+      if(!game){
+        const [thing] = await BGG.thing([id]);
+        game = thing; state.cache[id]=game; save(CACHE_KEY, state.cache);
+      }
+      $('#m_title').textContent = game.name;
+      $('#m_cover').src = game.image || '';
+      $('#m_desc').textContent = game.desc || '—';
+      $('#m_players').textContent = `${game.players.min||'?'}–${game.players.max||'?'} Spieler`;
+      const tm = game.playtime;
+      $('#m_time').textContent = `${tm.typical||tm.max||tm.min||'?'} Min`;
+      $('#m_rating').textContent = (game.rating.bayes>0 ? game.rating.bayes.toFixed(2) : game.rating.avg>0 ? game.rating.avg.toFixed(2) : '—');
+      $('#m_year').textContent = game.year || '—';
+      const catEl = $('#m_categories'); catEl.innerHTML='';
+      game.categories.slice(0,10).forEach(c => { const s=document.createElement('span'); s.className='chip'; s.textContent=c; catEl.appendChild(s); });
+      $('#m_bgg').href = `https://boardgamegeek.com/boardgame/${encodeURIComponent(game.id)}`;
+      const q = encodeURIComponent(`${game.name} board game rules pdf`);
+      $('#m_rules').href = `https://www.google.com/search?q=${q}`;
+      const yt = encodeURIComponent(`${game.name} how to play`);
+      $('#m_howto').href = `https://www.youtube.com/results?search_query=${yt}`;
+      modal.showModal();
+    }
+
+    // ------------------------------
+    // Export / Import
+    // ------------------------------
+    $('#exportBtn').addEventListener('click', ()=>{
+      const data = { library: state.library, cache: state.cache, exportedAt: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'brettspiel-db-export.json'; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    });
+
+    $('#importBtn').addEventListener('click', ()=> $('#importFile').click());
+    $('#importFile').addEventListener('change', async (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      try{
+        const txt = await file.text();
+        const data = JSON.parse(txt);
+        if(Array.isArray(data.library)) state.library = data.library; else throw new Error('Ungültiges Format (library)');
+        if(data.cache && typeof data.cache === 'object') state.cache = data.cache; else state.cache={};
+        save(STORAGE_KEY, state.library); save(CACHE_KEY, state.cache);
+        renderLibrary();
+      }catch(err){ alert('Import fehlgeschlagen: '+err.message) }
+      e.target.value = '';
+    });
+
+    // ------------------------------
+    // Barcode (optional, experimentell)
+    // ------------------------------
+    let stream = null; let scanTimer = null; let detector = null;
+    $('#startScan').addEventListener('click', startScan);
+    $('#stopScan').addEventListener('click', stopScan);
+
+    async function startScan(){
+      try{
+        if(!('BarcodeDetector' in window)) throw new Error('BarcodeDetector nicht unterstützt');
+        detector = new BarcodeDetector({formats:['ean-13','upc-a','upc-e','ean-8','code-128','code-39','itf']});
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+        const video = $('#video');
+        video.srcObject = stream; await video.play();
+        scanTimer = setInterval(async ()=>{
+          try{
+            const codes = await detector.detect(video);
+            if(codes && codes[0]){
+              const code = codes[0].rawValue;
+              $('#q').value = code; doSearch(); stopScan();
+            }
+          }catch{}
+        }, 500);
+      }catch(err){ alert('Kamera/Scan nicht verfügbar: '+err.message) }
+    }
+    function stopScan(){
+      if(scanTimer){ clearInterval(scanTimer); scanTimer=null }
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null }
+      const video=$('#video'); if(video){ video.pause(); video.srcObject=null }
+    }
+
+    // ------------------------------
+    // Helpers
+    // ------------------------------
+    function setLoading(el){ el.innerHTML = '<div class="empty">Lade …</div>'; }
+    function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
+
+    function toast(msg){
+      const t = document.createElement('div');
+      t.textContent = msg; t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#0b1220;border:1px solid #334155;border-radius:12px;padding:10px 14px;box-shadow:0 10px 30px #0006;z-index:9999';
+      document.body.appendChild(t);
+      setTimeout(()=>{ t.remove(); }, 1600);
+    }
+
+    // Price fetch via BoardGameAtlas (optional)
+    async function showPrice(id, name, year){
+      const el = document.querySelector(`[data-price-for="${CSS.escape(id)}"]`);
+      if(!el) return;
+      if(state.priceCache[id]){ el.textContent = `💶 ${state.priceCache[id]}`; return; }
+      if(!state.bgaClientId){ el.textContent = '💶 –'; return; }
+      try{
+        const url = `https://api.boardgameatlas.com/api/search?name=${encodeURIComponent(name)}&limit=1&client_id=${encodeURIComponent(state.bgaClientId)}`;
+        const json = await fetchJSON(url);
+        const g = json.games && json.games[0];
+        let price = g?.price || g?.msrp_text || g?.msrp || null;
+        if(typeof price === 'number') price = '€' + price.toFixed(2);
+        if(!price && typeof g?.price === 'string') price = g.price;
+        if(price){ state.priceCache[id] = price; save(PRICE_CACHE_KEY, state.priceCache); el.textContent = `💶 ${price}`; }
+        else { el.textContent = '💶 –'; }
+      }catch{ el.textContent = '💶 –'; }
+    }
+    function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
+
+    // ------------------------------
+    // Collapsible Cards (Search & Library)
+    // ------------------------------
+    const UI_COLLAPSE_KEY = 'ui_collapse_v1';
+
+    function makeCollapsible(card, key, defaultOpen=true){
+      const saved = load(UI_COLLAPSE_KEY, {});
+      const startCollapsed = saved[key] ?? !defaultOpen;
+      if(startCollapsed) card.classList.add('collapsed');
+
+      const btn = document.createElement('button');
+      btn.className = 'btn toggle';
+      const setIcon = () => { btn.textContent = card.classList.contains('collapsed') ? '▸' : '▾'; btn.title = card.classList.contains('collapsed') ? 'Aufklappen' : 'Zuklappen'; };
+      setIcon();
+      btn.addEventListener('click', (e)=>{
+        e.preventDefault(); e.stopPropagation();
+        card.classList.toggle('collapsed');
+        const s = load(UI_COLLAPSE_KEY, {});
+        s[key] = card.classList.contains('collapsed');
+        save(UI_COLLAPSE_KEY, s);
+        setIcon();
+      });
+      const hd = card.querySelector('.hd');
+      hd.appendChild(btn);
+    }
+
+    const cards = document.querySelectorAll('.grid > section.card');
+    if(cards[0]) makeCollapsible(cards[0], 'search', true);
+    if(cards[1]) makeCollapsible(cards[1], 'library', true);
+
+    // Initial render
+    renderLibrary();
+
+    // ------------------------------
+    // Merklisten-Modal (browse & manage)
+    // ------------------------------
+    const listsModal = document.getElementById('listsModal');
+    const lmClose = document.getElementById('lm_close');
+    const lmLists = document.getElementById('lm_lists');
+    const lmItems = document.getElementById('lm_items');
+    const lmEmpty = document.getElementById('lm_empty');
+    const lmTitle = document.getElementById('lm_title');
+    const lmNew = document.getElementById('lm_new');
+    const lmRename = document.getElementById('lm_rename');
+    const lmDelete = document.getElementById('lm_delete');
+
+    document.getElementById('viewListsBtn').addEventListener('click', () => openListsModal(listSelect.value || 'default'));
+    lmClose.addEventListener('click', ()=> listsModal.close());
+    lmNew.addEventListener('click', ()=> newListBtn.click());
+
+    let lmActive = null;
+
+    function openListsModal(listId){
+      ensureList(listId);
+      lmActive = listId;
+      renderListsSidebar();
+      renderListItems(listId);
+      listsModal.showModal();
+    }
+
+    function renderListsSidebar(){
+      const entries = Object.values(state.lists);
+      lmLists.innerHTML = entries.map(l => `
+        <div class="list-row ${l.id===lmActive?'active':''}" data-id="${l.id}">
+          <span>${escapeHtml(l.name)}</span>
+          <span class="count">${l.items.length}</span>
+        </div>
+      `).join('');
+      lmLists.querySelectorAll('.list-row').forEach(row => {
+        row.addEventListener('click', ()=>{ lmActive = row.getAttribute('data-id'); renderListsSidebar(); renderListItems(lmActive); });
+      });
+    }
+
+    lmRename.addEventListener('click', ()=>{
+      if(!lmActive) return; const name = prompt('Neuer Listenname:', state.lists[lmActive]?.name || 'Liste');
+      if(!name) return; state.lists[lmActive].name = name; save(LISTS_KEY, state.lists); renderListsSidebar(); renderListItems(lmActive);
+    });
+    lmDelete.addEventListener('click', ()=>{
+      if(!lmActive) return; if(!confirm('Liste wirklich löschen?')) return;
+      delete state.lists[lmActive]; save(LISTS_KEY, state.lists);
+      const first = Object.keys(state.lists)[0] || null; lmActive = first; renderListsSidebar(); if(first) renderListItems(first); else { lmItems.innerHTML=''; lmEmpty.style.display='block'; lmTitle.textContent='Liste'; }
+    });
+
+    async function renderListItems(listId){
+      const list = state.lists[listId];
+      if(!list){ lmItems.innerHTML=''; lmEmpty.style.displa
