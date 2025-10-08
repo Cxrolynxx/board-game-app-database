@@ -1,4 +1,4 @@
-# 🧩 Brettspiel-DB – Meine persönliche Brettspiel-Sammlung
+# 🧩 Meine persönliche Brettspiel-Sammlung
 
 Eine einfache Web-App, mit der du **deine Brettspiel-Sammlung digital verwalten** kannst.  
 Die App nutzt Daten von [BoardGameGeek](https://boardgamegeek.com) und speichert alles **lokal im Browser** – kein Login oder Server nötig.
