@@ -91,6 +91,9 @@
     .btn.toggle{width:32px;height:32px;padding:0;display:grid;place-items:center;font-weight:700}
     .card.collapsed .bd{display:none}
     .card.collapsed .hd{border-bottom:1px solid transparent}
+      .tabs{display:flex;gap:8px;margin-bottom:12px}
+    .tab{padding:8px 12px;border-radius:999px;border:1px solid #2a3857;background:#0b1220;color:var(--text);cursor:pointer}
+    .tab[aria-selected="true"]{background:linear-gradient(180deg,#22d3ee,#0ea5e9);color:#06131a;border-color:transparent;font-weight:700}
   </style>
 </head>
 <body>
@@ -103,7 +106,6 @@
       </div>
       <div class="toolbar">
         <input id="proxy" type="text" placeholder="Optional: Proxy‑URL für BGG API (z. B. https://your-proxy.example/)" />
-        <input id="bgaClientId" type="text" placeholder="Optional: BoardGameAtlas Client ID (für Preis)" style="max-width:260px" />
         <select id="listSelect" title="Aktive Liste zum Merken" style="min-width:160px"></select>
         <button class="btn" id="newListBtn" title="Neue Liste anlegen">+ Liste</button>
         <button class="btn" id="viewListsBtn" title="Merklisten öffnen">Listen</button>
@@ -113,9 +115,15 @@
       </div>
     </header>
 
+    <nav class="tabs" role="tablist" aria-label="Ansichten">
+      <button class="tab" id="tabSearch" aria-selected="true">Suche</button>
+      <button class="tab" id="tabLibrary" aria-selected="false">Meine Bibliothek</button>
+      <button class="tab" id="tabLists" aria-selected="false">Merklisten</button>
+    </nav>
+
     <div class="grid">
       <!-- LINKER BEREICH: Globale Suche (BGG) -->
-      <section class="card">
+      <section class="card" id="searchCard">
         <div class="hd">
           <strong>Spiele suchen (BoardGameGeek)</strong>
           <span class="notice">Tipp: Erst suchen, dann der privaten Liste hinzufügen</span>
@@ -142,29 +150,15 @@
             <button class="btn" id="sReset">Filter zurücksetzen</button>
           </div>
 
-          <details style="margin-top:12px">
-            <summary class="muted">📷 Optional: Barcode scannen (experimentell)</summary>
-            <div class="scan">
-              <div>
-                <video id="video" playsinline muted></video>
-                <div class="notice">Nutzen moderner Browser mit <code>BarcodeDetector</code>. Findet z. B. EAN/UPC und füllt das Suchfeld.</div>
-                <div class="toolbar" style="margin-top:8px">
-                  <button class="btn" id="startScan">Kamera starten</button>
-                  <button class="btn" id="stopScan">Stop</button>
-                </div>
-              </div>
-              <div class="notice">Hinweis: BGG kennt nicht immer Barcodes. Nach dem Scan wird mit dem Code als Text gesucht. Du kannst den gescannten Code durch den Spieletitel ersetzen.</div>
-            </div>
-          </details>
-
           <div id="searchLinks" class="notice" style="margin-top:8px; display:none"></div>
           <div id="results" class="results" style="margin-top:12px"></div>
+          <div id="manualSlot" style="margin-top:12px"></div>
           <div id="resultsEmpty" class="empty" style="display:none;margin-top:12px">Keine Treffer.</div>
         </div>
       </section>
 
       <!-- RECHTER BEREICH: Meine Bibliothek + Filter -->
-      <section class="card">
+      <section class="card" id="libraryCard">
         <div class="hd">
           <strong>Meine Bibliothek</strong>
           <div class="toolbar right">
@@ -224,6 +218,40 @@
     </div>
   </dialog>
 
+  <!-- Modal: Manuelle Anlage -->
+  <dialog id="manualModal">
+    <div class="modal-hd">
+      <strong>Eigenen Eintrag anlegen</strong>
+      <button class="btn" id="mm_close">Schließen</button>
+    </div>
+    <div class="modal-bd">
+      <div class="row" style="margin-bottom:8px">
+        <input id="mm_name" type="text" placeholder="Titel (Pflicht)" />
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <textarea id="mm_desc" placeholder="Kurzbeschreibung" rows="4" style="width:100%;padding:12px 14px;border-radius:12px;border:1px solid #233047;background:#0b1220;color:var(--text)"></textarea>
+      </div>
+      <div class="row">
+        <input id="mm_pmin" type="number" min="1" placeholder="Min Spieler" />
+        <input id="mm_pmax" type="number" min="1" placeholder="Max Spieler" />
+        <input id="mm_time" type="number" min="1" placeholder="Dauer (Min)" />
+        <input id="mm_year" type="number" min="1800" max="2100" placeholder="Jahr" />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="mm_bayes" type="number" step="0.01" placeholder="Bayes‑Bewertung" />
+        <input id="mm_avg" type="number" step="0.01" placeholder="Durchschnitt" />
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="mm_cats" type="text" placeholder="Kategorien (Komma getrennt)" />
+        <input id="mm_mech" type="text" placeholder="Mechaniken (Komma getrennt)" />
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn" id="mm_toList">Zu aktiver Liste</button>
+        <button class="btn" id="mm_toLib">Zur Bibliothek</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Modal: Merklisten -->
   <dialog id="listsModal">
     <div class="modal-hd">
@@ -261,34 +289,24 @@
     const STORAGE_KEY = 'bgg_my_library_v1';
     const CACHE_KEY = 'bgg_cache_v1';
     const LISTS_KEY = 'bgg_lists_v1';
-    const PRICE_CACHE_KEY = 'bgg_price_cache_v1';
-
+    
     const state = {
       library: load(STORAGE_KEY, []),
       cache: load(CACHE_KEY, {}),
       proxy: localStorage.getItem('bgg_proxy') || '',
-      bgaClientId: localStorage.getItem('bga_client_id') || '',
       lists: load(LISTS_KEY, { default: { id:'default', name:'Merkliste', items:[] } }),
-      priceCache: load(PRICE_CACHE_KEY, {}) ,
       searchItems: []
     };
 
     function save(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
     function load(k, fallback){ try{ return JSON.parse(localStorage.getItem(k)) ?? fallback } catch{ return fallback } }
 
-    // Persist proxy input & price API
+    // Persist proxy input
     const proxyInput = $('#proxy');
     proxyInput.value = state.proxy;
     proxyInput.addEventListener('change', () => {
       state.proxy = proxyInput.value.trim();
       localStorage.setItem('bgg_proxy', state.proxy);
-    });
-
-    const bgaInput = $('#bgaClientId');
-    bgaInput.value = state.bgaClientId;
-    bgaInput.addEventListener('change', () => {
-      state.bgaClientId = bgaInput.value.trim();
-      localStorage.setItem('bga_client_id', state.bgaClientId);
     });
 
     // Lists UI
@@ -348,9 +366,7 @@
       const final = state.proxy ? (state.proxy.replace(/\/$/, '') + '/' + url) : url;
       const res = await fetch(final);
       if(!res.ok){ throw new Error('HTTP ' + res.status + ' – ' + final); }
-      const txt = await res.text();
-      return new DOMParser().parseFromString(txt, 'text/xml');
-    }
+
 
     async function fetchJSON(url){
       const final = state.proxy ? (state.proxy.replace(/\/$/, '') + '/' + url) : url;
@@ -404,7 +420,7 @@
     const sSort = document.getElementById('sSort');
     const sReset = document.getElementById('sReset');
     ;[sPlayers, sTime, sCategory, sSort].forEach(el => el && el.addEventListener('input', applySearchFiltersAndRender));
-    if(sReset) sReset.addEventListener('click', ()=>{ if(sPlayers) sPlayers.value=''; if(sTime) sTime.value=''; if(sCategory) sCategory.value=''; if(sSort) sSort.value='relevance'; applySearchFiltersAndRender();
+    if(sReset) sReset.addEventListener('click', ()=>{ if(sPlayers) sPlayers.value=''; if(sTime) sTime.value=''; if(sCategory) sCategory.value=''; if(sSort) sSort.value='relevance'; applySearchFiltersAndRender(); });
         // External links for broader search (BGG geeksearch)
         const sl = document.getElementById('searchLinks');
         if(sl){
@@ -424,6 +440,13 @@
         const ids = hits.slice(0,100).map(h=>h.id);
         const things = await BGG.thing(ids);
         state.searchItems = things;
+        // Update external search link (BGG geeksearch)
+        const sl = document.getElementById('searchLinks');
+        if(sl){
+          const qEnc = encodeURIComponent(q);
+          sl.innerHTML = `Weitere Treffer: <a href="https://boardgamegeek.com/geeksearch.php?action=search&objecttype=boardgame&q=${qEnc}" target="_blank" rel="noopener">BGG‑Suche öffnen</a>`;
+          sl.style.display = 'block';
+        }
         applySearchFiltersAndRender();
       }catch(err){
         resultsEl.innerHTML = `<div class="empty">Fehler bei der Suche: <span class="danger">${escapeHtml(err.message)}</span><br><span class="notice">Tipp: Falls CORS-Fehler auftreten, trage oben eine Proxy‑URL ein.</span></div>`
@@ -469,6 +492,35 @@
       items.forEach(g => g.categories.forEach(c=>cats.add(c)));
       $('#sCategory').innerHTML = ['<option value="">Kategorie: alle</option>', ...[...cats].sort().map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join('');
 
+      const limited = items.slice(0,7);
+      limited.forEach(game => {
+        const card = renderSearchCard(game);
+        resultsEl.appendChild(card);
+      });
+
+      renderManualCreateCard();
+    }
+
+    function renderManualCreateCard(){
+      const slot = document.getElementById('manualSlot');
+      slot.innerHTML = '';
+      const el = document.createElement('div');
+      el.className = 'game';
+      el.innerHTML = `
+        <div style="width:84px;height:84px;border:1px dashed #334155;border-radius:10px;display:grid;place-items:center">＋</div>
+        <div style="flex:1">
+          <h3>Manuell anlegen</h3>
+          <p class="muted">Eigene Daten eintragen: Beschreibung, Spielerzahl, Dauer, Jahr, Bewertung, Kategorien & Mechaniken.</p>
+          <div class="toolbar" style="margin-top:8px">
+            <button class="btn" id="btnManualAddToList">Zu aktiver Liste</button>
+            <button class="btn" id="btnManualAddToLib">Zur Bibliothek</button>
+          </div>
+        </div>`;
+      slot.appendChild(el);
+      el.querySelector('#btnManualAddToList').addEventListener('click', ()=> openManualModal('list'));
+      el.querySelector('#btnManualAddToLib').addEventListener('click', ()=> openManualModal('library'));
+    }">${escapeHtml(c)}</option>`)].join('');
+
       items.forEach(game => {
         const card = renderSearchCard(game);
         resultsEl.appendChild(card);
@@ -487,12 +539,10 @@
             <span class="chip">${game.players.min||'?'}–${game.players.max||'?'} Spieler</span>
             <span class="chip">${game.playtime.typical || game.playtime.max || game.playtime.min || '?'} Min</span>
             ${Number.isFinite(game.rating.bayes) && game.rating.bayes>0 ? `<span class="chip">⭐ ${game.rating.bayes.toFixed(2)}</span>` : ''}
-            <span class="chip" data-price-for="${game.id}">💶 —</span>
           </div>
           <p class="muted">${escapeHtml((game.desc||'').slice(0,220))}${(game.desc||'').length>220?'…':''}</p>
           <div class="toolbar" style="margin-top:8px">
             <a class="btn" href="https://boardgamegeek.com/boardgame/${encodeURIComponent(game.id)}" target="_blank" rel="noopener">BGG‑Seite</a>
-            <a class="btn" href="https://www.google.com/search?q=${encodeURIComponent(game.name + ' price kaufen')}" target="_blank" rel="noopener">Preise</a>
             <button class="btn" data-action="remember">Merken</button>
             <button class="btn" data-action="addlib">Zur Bibliothek</button>
           </div>
@@ -506,9 +556,6 @@
         addToList(listId, game.id);
       });
       el.querySelector('[data-action="addlib"]').addEventListener('click', (e)=>{ e.stopPropagation(); if(!inLibrary(game.id)) addToLibrary(game); });
-
-      // Lazy price fetch
-      showPrice(game.id, game.name, game.year);
 
       // Open modal when clicking card (if already in library)
       el.addEventListener('click', (ev)=>{ if(ev.target.closest('button,a')) return; if(inLibrary(game.id)) openModal(game.id); });
@@ -701,38 +748,6 @@
       }catch(err){ alert('Import fehlgeschlagen: '+err.message) }
       e.target.value = '';
     });
-
-    // ------------------------------
-    // Barcode (optional, experimentell)
-    // ------------------------------
-    let stream = null; let scanTimer = null; let detector = null;
-    $('#startScan').addEventListener('click', startScan);
-    $('#stopScan').addEventListener('click', stopScan);
-
-    async function startScan(){
-      try{
-        if(!('BarcodeDetector' in window)) throw new Error('BarcodeDetector nicht unterstützt');
-        detector = new BarcodeDetector({formats:['ean-13','upc-a','upc-e','ean-8','code-128','code-39','itf']});
-        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-        const video = $('#video');
-        video.srcObject = stream; await video.play();
-        scanTimer = setInterval(async ()=>{
-          try{
-            const codes = await detector.detect(video);
-            if(codes && codes[0]){
-              const code = codes[0].rawValue;
-              $('#q').value = code; doSearch(); stopScan();
-            }
-          }catch{}
-        }, 500);
-      }catch(err){ alert('Kamera/Scan nicht verfügbar: '+err.message) }
-    }
-    function stopScan(){
-      if(scanTimer){ clearInterval(scanTimer); scanTimer=null }
-      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null }
-      const video=$('#video'); if(video){ video.pause(); video.srcObject=null }
-    }
-
     // ------------------------------
     // Helpers
     // ------------------------------
@@ -746,24 +761,7 @@
       setTimeout(()=>{ t.remove(); }, 1600);
     }
 
-    // Price fetch via BoardGameAtlas (optional)
-    async function showPrice(id, name, year){
-      const el = document.querySelector(`[data-price-for="${CSS.escape(id)}"]`);
-      if(!el) return;
-      if(state.priceCache[id]){ el.textContent = `💶 ${state.priceCache[id]}`; return; }
-      if(!state.bgaClientId){ el.textContent = '💶 –'; return; }
-      try{
-        const url = `https://api.boardgameatlas.com/api/search?name=${encodeURIComponent(name)}&limit=1&client_id=${encodeURIComponent(state.bgaClientId)}`;
-        const json = await fetchJSON(url);
-        const g = json.games && json.games[0];
-        let price = g?.price || g?.msrp_text || g?.msrp || null;
-        if(typeof price === 'number') price = '€' + price.toFixed(2);
-        if(!price && typeof g?.price === 'string') price = g.price;
-        if(price){ state.priceCache[id] = price; save(PRICE_CACHE_KEY, state.priceCache); el.textContent = `💶 ${price}`; }
-        else { el.textContent = '💶 –'; }
-      }catch{ el.textContent = '💶 –'; }
-    }
-    function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
+    function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }(s){ return String(s).replace(/[&<>"]+/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
 
     // ------------------------------
     // Collapsible Cards (Search & Library)
@@ -797,6 +795,34 @@
 
     // Initial render
     renderLibrary();
+
+    // ------------------------------
+    // Tabs (Menu) – Suche / Bibliothek / Listen
+    // ------------------------------
+    const tabSearch = document.getElementById('tabSearch');
+    const tabLibrary = document.getElementById('tabLibrary');
+    const tabLists = document.getElementById('tabLists');
+    const searchCard = document.getElementById('searchCard');
+    const libraryCard = document.getElementById('libraryCard');
+    const grid = document.querySelector('.grid');
+
+    function setView(view){
+      const setSel = (btn, sel) => btn.setAttribute('aria-selected', sel ? 'true' : 'false');
+      searchCard.style.display = (view==='search') ? '' : 'none';
+      libraryCard.style.display = (view==='library') ? '' : 'none';
+      setSel(tabSearch, view==='search');
+      setSel(tabLibrary, view==='library');
+      setSel(tabLists, view==='lists');
+      grid.style.gridTemplateColumns = '1fr';
+      if(view==='lists'){ openListsModal(listSelect.value || 'default'); }
+    }
+    }
+
+    tabSearch.addEventListener('click', ()=> setView('search'));
+    tabLibrary.addEventListener('click', ()=> setView('library'));
+    tabLists.addEventListener('click', ()=> setView('lists'));
+    // Startansicht: Suche
+    setView('search');
 
     // ------------------------------
     // Merklisten-Modal (browse & manage)
@@ -850,4 +876,89 @@
 
     async function renderListItems(listId){
       const list = state.lists[listId];
-      if(!list){ lmItems.innerHTML=''; lmEmpty.style.displa
+      if(!list){ lmItems.innerHTML=''; lmEmpty.style.display='block'; lmTitle.textContent='Liste'; return; }
+      lmTitle.textContent = list.name;
+      lmItems.innerHTML = '';
+      lmEmpty.style.display = list.items.length ? 'none' : 'block';
+
+      for(const id of list.items){
+        const game = await getOrFetchGame(id);
+        const card = renderGameCard(game, {
+          actions: [
+            { label: 'Details', onClick: () => inLibrary(game.id) ? openModal(game.id) : null },
+            { label: inLibrary(game.id) ? 'Schon in Bibliothek' : 'Zur Bibliothek', onClick: () => { if(!inLibrary(game.id)) addToLibrary(game); } },
+            { label: 'Aus Liste entfernen', onClick: () => { removeFromList(listId, id); renderListItems(listId); } }
+          ]
+        });
+        lmItems.appendChild(card);
+      }
+    }
+
+    function removeFromList(listId, gameId){
+      const list = state.lists[listId];
+      list.items = list.items.filter(id => id !== gameId);
+      save(LISTS_KEY, state.lists);
+      toast('Aus Liste entfernt.');
+    }
+
+    async function getOrFetchGame(id){
+      if(state.cache[id]) return state.cache[id];
+      if(/^custom-/.test(id)) return state.cache[id] || null; // custom wird nur aus cache gelesen
+      try{
+        const [thing] = await BGG.thing([id]);
+        state.cache[id] = thing; save(CACHE_KEY, state.cache);
+        return thing;
+      }catch{ return { id, name: 'Unbekannt', players:{min:0,max:0}, playtime:{min:0,max:0,typical:0}, rating:{avg:0,bayes:0,ranks:[]}, categories:[], mechanics:[], desc:'—', year:'' } }
+    }
+
+    // ------------------------------
+    // Manuelle Anlage – Logik
+    // ------------------------------
+    const manualModal = document.getElementById('manualModal');
+    const mmClose = document.getElementById('mm_close');
+    const mmToList = document.getElementById('mm_toList');
+    const mmToLib = document.getElementById('mm_toLib');
+
+    let manualTarget = 'list';
+
+    function openManualModal(target='list'){
+      manualTarget = target;
+      manualModal.showModal();
+    }
+
+    mmClose.addEventListener('click', ()=> manualModal.close());
+
+    function readManualForm(){
+      const name = document.getElementById('mm_name').value.trim();
+      if(!name){ alert('Bitte einen Titel eingeben.'); return null; }
+      const desc = document.getElementById('mm_desc').value.trim();
+      const pmin = parseInt(document.getElementById('mm_pmin').value)||0;
+      const pmax = parseInt(document.getElementById('mm_pmax').value)||0;
+      const time = parseInt(document.getElementById('mm_time').value)||0;
+      const year = parseInt(document.getElementById('mm_year').value)||'';
+      const bayes = parseFloat(document.getElementById('mm_bayes').value)||0;
+      const avg = parseFloat(document.getElementById('mm_avg').value)||0;
+      const cats = (document.getElementById('mm_cats').value||'').split(',').map(s=>s.trim()).filter(Boolean);
+      const mech = (document.getElementById('mm_mech').value||'').split(',').map(s=>s.trim()).filter(Boolean);
+      const id = 'custom-' + Date.now();
+      const game = { id, name, year, image:'', desc, players:{min:pmin,max:pmax}, playtime:{min:0,max:0,typical:time}, rating:{avg,bayes,ranks:[]}, categories:cats, mechanics:mech };
+      return game;
+    }
+
+    function clearManualForm(){
+      ['mm_name','mm_desc','mm_pmin','mm_pmax','mm_time','mm_year','mm_bayes','mm_avg','mm_cats','mm_mech'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    }
+
+    mmToList.addEventListener('click', ()=>{
+      const game = readManualForm(); if(!game) return;
+      state.cache[game.id]=game; save(CACHE_KEY, state.cache);
+      const listId = listSelect.value || 'default'; ensureList(listId); addToList(listId, game.id);
+      manualModal.close(); clearManualForm();
+    });
+
+    mmToLib.addEventListener('click', ()=>{
+      const game = readManualForm(); if(!game) return;
+      state.cache[game.id]=game; save(CACHE_KEY, state.cache);
+      addToLibrary(game);
+      manualModal.close(); clearManualForm();
+    });
