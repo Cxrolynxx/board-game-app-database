@@ -205,7 +205,7 @@
     const state = {
       library: load(STORAGE_KEY, []),        // [{id, name, year, players:{min,max}, playtime, rating, image, categories:[...], desc}]
       cache: load(CACHE_KEY, {}),            // id -> thing payload
-      proxy: localStorage.getItem('bgg_proxy') || ''
+       proxy: localStorage.getItem('bgg_proxy') || 'https://cors.isomorphic-git.org'
     };
 
     function save(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
