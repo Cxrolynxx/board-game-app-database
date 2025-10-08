@@ -1,0 +1,4 @@
+name = "board-game-database"         # MUSS so heißen, damit die URL gleich bleibt
+main = "src/worker.js"
+compatibility_date = "2025-10-08"
+workers_dev = true
